@@ -112,7 +112,7 @@ with tab3:
         return color
 
     st.subheader("📊 現在の各銘柄のデルタ・ニュートラル乖離率")
-    st.dataframe(m_df.style.applymap(highlight_status, subset=['ステータス']), use_container_width=True)
+    st.dataframe(m_df.style.map(highlight_status, subset=['ステータス']), use_container_width=True)
     
     if st.button("🔄 今すぐ最新データに更新する"):
         with st.spinner("サクソバンクAPIから最新データを取得中..."):
