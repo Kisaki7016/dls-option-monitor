@@ -77,7 +77,7 @@ with tab2:
         with c4:
             new_threshold = st.number_input("デルタ差トリガー", value=0.13, step=0.01, help="初期設定は0.13")
             
-        submit_btn = st.form_submit_with_button("この銘柄を監視リストに追加する")
+        submit_btn = st.form_submit_button("この銘柄を監視リストに追加する")
         
         if submit_btn:
             st.success(f"📌 {new_sym} (Strike: {new_strike}, 満期: {new_expiry}) をリストに追加しました！")
