@@ -25,7 +25,7 @@ with tab1:
     with col1:
         st.subheader("🟢 STEP 1: LINE Notifyの準備")
         st.markdown("""
-        1. [LINE Notify マイページ](https://notify-api.line.me/mypage/) にLINEアカウントでログインします。
+        1. [LINE Notify マイページ](https://notify-bot.line.me/mypage/) にLINEアカウントでログインします。
         2. **「トークンを発行する」** ボタンを押します。
         3. トークン名（例: `オプショントレード通知`）を入力し、通知を送信したいトークルーム（「1対1でLINE Notifyから通知を受け取る」など）を選択します。
         4. 発行された **文字列（トークン）** をコピーして、右側のフォームに貼り付けてください。
