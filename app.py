@@ -6,14 +6,16 @@ import datetime
 
 # 画面のタイトルと全体のレイアウト設定
 st.set_page_config(page_title="DLSストラドル監視システム", layout="wide")
-st.title("📊 DLS戦略 ストラドル専用監視ダッシュボード")
+
+# タイトル表示の重なりを防ぐために少し余白を持たせたデザインに変更
+st.markdown("<h1 style='margin-bottom: 0px;'>📊 DLS戦略 ストラドル専用監視ダッシュボード</h1>", unsafe_allow_html=True)
 st.caption("サクソバンクAPI連携 × Discord通知機能搭載（絶対値デルタ監視版）")
+st.markdown("<br>", unsafe_allow_html=True)
 
 # ==========================================
 # 状態管理（Session State）の初期化
 # ==========================================
 if 'positions' not in st.session_state:
-    # 初期状態として現在のダミーデータを保持（後で自由に追加・削除可能）
     st.session_state['positions'] = [
         {"ticker": "AMZN", "strike": 240.0, "expiry": "2026-07-31", "current_delta": -0.02, "target_delta": 0.0, "trigger": 0.05},
         {"ticker": "AAPL", "strike": 210.0, "expiry": "2026-08-21", "current_delta": 0.04, "target_delta": 0.0, "trigger": 0.05},
@@ -24,22 +26,15 @@ if 'positions' not in st.session_state:
 # サクソバンクAPIからデルタを取得する関数（仮）
 # ==========================================
 def fetch_current_delta(ticker, strike, expiry, token):
-    """
-    サクソバンクのOpenAPIを叩いて現在のネットデルタをリアルタイム取得する関数
-    ※トークンがない間は、ライブ監視の動作確認用にランダムな数値を返します。
-    """
     if not token:
-        # テスト用の疑似ライブデータ模擬表示
         import random
         return round(random.uniform(-0.15, 0.15), 3)
-    
-    # TODO: ここに実際のサクソバンクAPI（Saxo OpenAPI）のリクエスト処理を実装します
     return 0.00
 
 # ==========================================
-# 🚨 ライブ監視 ＆ 一覧表示セクション (トップレベルに配置してフリーズを回避)
+# 🚨 ライブ監視 ＆ 一覧表示セクション
 # ==========================================
-@st.fragment(run_every=5)  # 5秒ごとにこの関数内だけが自動で再実行され、ライブ監視を行います
+@st.fragment(run_every=5)
 def render_live_monitor_zone(token_input):
     st.header("📋 現在のストラドル監視一覧 (5秒自動更新)")
     
@@ -50,7 +45,6 @@ def render_live_monitor_zone(token_input):
     # 1. リアルタイムデータの更新処理
     updated_positions = []
     for pos in st.session_state['positions']:
-        # サクソバンクAPI（またはモック）から最新のデルタを取得
         pos['current_delta'] = fetch_current_delta(pos['ticker'], pos['strike'], pos['expiry'], token_input)
         updated_positions.append(pos)
     st.session_state['positions'] = updated_positions
@@ -60,6 +54,13 @@ def render_live_monitor_zone(token_input):
     df['delta_diff'] = (df['current_delta'] - df['target_delta']).abs()
     df['status'] = df.apply(lambda r: "要調整" if r['delta_diff'] > r['trigger'] else "正常", axis=1)
     
+    # 🛠️ 【改善】事前に数値を適切な桁数にフォーマット（丸め処理）して視認性をUP
+    df['strike'] = df['strike'].map(lambda x: f"{x:.2f}")
+    df['current_delta'] = df['current_delta'].map(lambda x: f"{x:+.3f}") # 符号付き表示
+    df['target_delta'] = df['target_delta'].map(lambda x: f"{x:.3f}")
+    df['delta_diff'] = df['delta_diff'].map(lambda x: f"{x:.3f}")
+    df['trigger'] = df['trigger'].map(lambda x: f"{x:.2f}")
+
     # カラム名を日本語に整形
     df_display = df.rename(columns={
         "ticker": "銘柄",
@@ -72,7 +73,6 @@ def render_live_monitor_zone(token_input):
         "status": "ステータス"
     })
     
-    # 綺麗に並び替え
     df_display = df_display[["銘柄", "権利行使価格", "満期日", "現在ネットデルタ", "目標デルタ", "現在のデルタ差(絶対値)", "許容トリガー", "ステータス"]]
 
     # 3. 「要調整」の行を赤くハイライトするスタイリング
@@ -82,9 +82,10 @@ def render_live_monitor_zone(token_input):
     st.dataframe(df_display.style.apply(highlight_status, axis=1), use_container_width=True, hide_index=True)
     
     # 4. ❌ ポジションの削除機能
+    st.markdown("<br>", unsafe_allow_html=True)
     st.subheader("❌ 監視ポジションの削除")
     delete_options = [
-        f"{idx}: {p['ticker']} (Strike: {p['strike']}, 満期: {p['expiry']})" 
+        f"{idx}: {p['ticker']} (Strike: {float(p['strike']):.2f}, 満期: {p['expiry']})" 
         for idx, p in enumerate(st.session_state['positions'])
     ]
     
@@ -93,7 +94,6 @@ def render_live_monitor_zone(token_input):
         target_to_delete = st.selectbox("削除するポジションを選択してください", options=delete_options, label_visibility="collapsed")
     with col_del2:
         if st.button("選択したポジションを削除", use_container_width=True):
-            # インデックスを抽出してポップ（削除）
             target_idx = int(target_to_delete.split(":")[0])
             removed = st.session_state['positions'].pop(target_idx)
             st.warning(f" ⚠️ {removed['ticker']} を監視リストから削除しました。")
@@ -125,7 +125,6 @@ with tab1:
 with tab2:
     st.header("➕ 監視ポジションの新規登録")
     
-    # 入力フォームの配置
     col_in1, col_in2, col_in3, col_in4 = st.columns(4)
     with col_in1:
         input_ticker = st.text_input("対象銘柄コード", value="AMZN")
@@ -137,23 +136,20 @@ with tab2:
         input_trigger = st.number_input("デルタ乖離トリガー（絶対値）", value=0.13, step=0.01)
         
     if st.button("このストラドルを監視リストに追加する", type="primary"):
-        # セッション状態のリストに新しい辞書を追加
         new_position = {
             "ticker": input_ticker.upper(),
-            "strike": input_strike,
+            "strike": float(input_strike),
             "expiry": input_expiry.strftime("%Y-%m-%d"),
-            "current_delta": 0.0,  # 初期値
+            "current_delta": 0.0,
             "target_delta": 0.0,
-            "trigger": input_trigger
+            "trigger": float(input_trigger)
         }
         st.session_state['positions'].append(new_position)
         st.success(f" 🟢 {input_ticker.upper()} ストラドルを監視リストに追加しました！")
         time.sleep(1)
-        st.rerun()  # 画面を再描画して下部の一覧に反映
+        st.rerun()
 
     st.markdown("---")
-    
-    # ライブ監視ゾーンのレンダリング呼び出し（関数自体はトップレベルにあるため安全です）
     render_live_monitor_zone(saxo_token)
 
 # ==========================================
