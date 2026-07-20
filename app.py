@@ -20,24 +20,6 @@ if 'positions' not in st.session_state:
         {"ticker": "NVDA", "strike": 120.0, "expiry": "2026-07-24", "current_delta": 0.12, "target_delta": 0.0, "trigger": 0.10},
     ]
 
-# ------------------------------------------------------------------
-# 画面を3つのタブに分割
-# ------------------------------------------------------------------
-tab1, tab2, tab3 = st.tabs(["🔧 ① 初期設定 & 準備ガイド", "📈 ② ストラドル銘柄管理", "🚨 ③ リアルタイム監視"])
-
-# ==========================================
-# タブ①：初期設定 & 準備ガイド (既存のコード)
-# ==========================================
-with tab1:
-    st.header("🛠️ 各種アカウントの準備と連携設定")
-    col1, col2 = st.columns(2)
-    with col1:
-        st.subheader("🟢 STEP 1: Discord Webhookの準備")
-        discord_webhook = st.text_input("Discord Webhook URL", type="password")
-    with col2:
-        st.subheader("🔵 STEP 2: サクソバンク OpenAPI の準備")
-        saxo_token = st.text_input("サクソバンク Access Token", type="password")
-
 # ==========================================
 # サクソバンクAPIからデルタを取得する関数（仮）
 # ==========================================
@@ -52,9 +34,90 @@ def fetch_current_delta(ticker, strike, expiry, token):
         return round(random.uniform(-0.15, 0.15), 3)
     
     # TODO: ここに実際のサクソバンクAPI（Saxo OpenAPI）のリクエスト処理を実装します
-    # headers = {"Authorization": f"Bearer {token}"}
-    # 応答からCallデルタとPutデルタを取得して合算するロジックをここに書き込みます
     return 0.00
+
+# ==========================================
+# 🚨 ライブ監視 ＆ 一覧表示セクション (トップレベルに配置してフリーズを回避)
+# ==========================================
+@st.fragment(run_every=5)  # 5秒ごとにこの関数内だけが自動で再実行され、ライブ監視を行います
+def render_live_monitor_zone(token_input):
+    st.header("📋 現在のストラドル監視一覧 (5秒自動更新)")
+    
+    if not st.session_state['positions']:
+        st.info("現在監視中のポジションはありません。上のフォームから登録してください。")
+        return
+
+    # 1. リアルタイムデータの更新処理
+    updated_positions = []
+    for pos in st.session_state['positions']:
+        # サクソバンクAPI（またはモック）から最新のデルタを取得
+        pos['current_delta'] = fetch_current_delta(pos['ticker'], pos['strike'], pos['expiry'], token_input)
+        updated_positions.append(pos)
+    st.session_state['positions'] = updated_positions
+
+    # 2. 表示用データフレームの作成と計算
+    df = pd.DataFrame(st.session_state['positions'])
+    df['delta_diff'] = (df['current_delta'] - df['target_delta']).abs()
+    df['status'] = df.apply(lambda r: "要調整" if r['delta_diff'] > r['trigger'] else "正常", axis=1)
+    
+    # カラム名を日本語に整形
+    df_display = df.rename(columns={
+        "ticker": "銘柄",
+        "strike": "権利行使価格",
+        "expiry": "満期日",
+        "current_delta": "現在ネットデルタ",
+        "target_delta": "目標デルタ",
+        "delta_diff": "現在のデルタ差(絶対値)",
+        "trigger": "許容トリガー",
+        "status": "ステータス"
+    })
+    
+    # 綺麗に並び替え
+    df_display = df_display[["銘柄", "権利行使価格", "満期日", "現在ネットデルタ", "目標デルタ", "現在のデルタ差(絶対値)", "許容トリガー", "ステータス"]]
+
+    # 3. 「要調整」の行を赤くハイライトするスタイリング
+    def highlight_status(row):
+        return ['background-color: #ffcccc; color: #cc0000; font-weight: bold;' if row['ステータス'] == "要調整" else '' for _ in row]
+
+    st.dataframe(df_display.style.apply(highlight_status, axis=1), use_container_width=True, hide_index=True)
+    
+    # 4. ❌ ポジションの削除機能
+    st.subheader("❌ 監視ポジションの削除")
+    delete_options = [
+        f"{idx}: {p['ticker']} (Strike: {p['strike']}, 満期: {p['expiry']})" 
+        for idx, p in enumerate(st.session_state['positions'])
+    ]
+    
+    col_del1, col_del2 = st.columns([3, 1])
+    with col_del1:
+        target_to_delete = st.selectbox("削除するポジションを選択してください", options=delete_options, label_visibility="collapsed")
+    with col_del2:
+        if st.button("選択したポジションを削除", use_container_width=True):
+            # インデックスを抽出してポップ（削除）
+            target_idx = int(target_to_delete.split(":")[0])
+            removed = st.session_state['positions'].pop(target_idx)
+            st.warning(f" ⚠️ {removed['ticker']} を監視リストから削除しました。")
+            time.sleep(1)
+            st.rerun()
+
+# ------------------------------------------------------------------
+# 画面を3つのタブに分割
+# ------------------------------------------------------------------
+tab1, tab2, tab3 = st.tabs(["🔧 ① 初期設定 & 準備ガイド", "📈 ② ストラドル銘柄管理", "🚨 ③ リアルタイム監視"])
+
+# ==========================================
+# タブ①：初期設定 & 準備ガイド
+# ==========================================
+with tab1:
+    st.header("🛠️ 各種アカウントの準備と連携設定")
+    st.write("この画面のステップに従って設定情報を取得し、下のフォームに入力してください。")
+    col1, col2 = st.columns(2)
+    with col1:
+        st.subheader("🟢 STEP 1: Discord Webhookの準備")
+        discord_webhook = st.text_input("Discord Webhook URL", type="password")
+    with col2:
+        st.subheader("🔵 STEP 2: サクソバンク OpenAPI の準備")
+        saxo_token = st.text_input("サクソバンク Access Token", type="password")
 
 # ==========================================
 # タブ②：ストラドル銘柄管理
@@ -79,7 +142,7 @@ with tab2:
             "ticker": input_ticker.upper(),
             "strike": input_strike,
             "expiry": input_expiry.strftime("%Y-%m-%d"),
-            "current_delta": 0.0,  # 初期値（ライブ監視側で即時更新されます）
+            "current_delta": 0.0,  # 初期値
             "target_delta": 0.0,
             "trigger": input_trigger
         }
@@ -90,75 +153,11 @@ with tab2:
 
     st.markdown("---")
     
-    # ==========================================
-    # 🚨 ライブ監視 ＆ 一覧表示セクション (Fragment化)
-    # ==========================================
-    @st.fragment(run_every=5)  # 5秒ごとにこの関数内だけが自動で再実行され、ライブ監視を行います
-    def render_live_monitor_zone(token_input):
-        st.header("📋 現在のストラドル監視一覧 (5秒自動更新)")
-        
-        if not st.session_state['positions']:
-            st.info("現在監視中のポジションはありません。上のフォームから登録してください。")
-            return
-
-        # 1. リアルタイムデータの更新処理
-        updated_positions = []
-        for pos in st.session_state['positions']:
-            # サクソバンクAPI（またはモック）から最新のデルタを取得
-            pos['current_delta'] = fetch_current_delta(pos['ticker'], pos['strike'], pos['expiry'], token_input)
-            updated_positions.append(pos)
-        st.session_state['positions'] = updated_positions
-
-        # 2. 表示用データフレームの作成と計算
-        df = pd.DataFrame(st.session_state['positions'])
-        df['delta_diff'] = (df['current_delta'] - df['target_delta']).abs()
-        df['status'] = df.apply(lambda r: "要調整" if r['delta_diff'] > r['trigger'] else "正常", axis=1)
-        
-        # カラム名を日本語に整形
-        df_display = df.rename(columns={
-            "ticker": "銘柄",
-            "strike": "権利行使価格",
-            "expiry": "満期日",
-            "current_delta": "現在ネットデルタ",
-            "target_delta": "目標デルタ",
-            "delta_diff": "現在のデルタ差(絶対値)",
-            "trigger": "許容トリガー",
-            "status": "ステータス"
-        })
-        
-        # 綺麗に並び替え
-        df_display = df_display[["銘柄", "権利行使価格", "満期日", "現在ネットデルタ", "目標デルタ", "現在のデルタ差(絶対値)", "許容トリガー", "ステータス"]]
-
-        # 3. 「要調整」の行を赤くハイライトするスタイリング
-        def highlight_status(row):
-            return ['background-color: #ffcccc; color: #cc0000; font-weight: bold;' if row['ステータス'] == "要調整" else '' for _ in row]
-
-        st.dataframe(df_display.style.apply(highlight_status, axis=1), use_container_width=True, hide_index=True)
-        
-        # 4. ❌ ポジションの削除機能
-        st.subheader("❌ 監視ポジションの削除")
-        delete_options = [
-            f"{idx}: {p['ticker']} (Strike: {p['strike']}, 満期: {p['expiry']})" 
-            for idx, p in enumerate(st.session_state['positions'])
-        ]
-        
-        col_del1, col_del2 = st.columns([3, 1])
-        with col_del1:
-            target_to_delete = st.selectbox("削除するポジションを選択してください", options=delete_options, label_visibility="collapsed")
-        with col_del2:
-            if st.button("選択したポジションを削除", use_container_width=True):
-                # インデックスを抽出してポップ（削除）
-                target_idx = int(target_to_delete.split(":")[0])
-                removed = st.session_state['positions'].pop(target_idx)
-                st.warning(f" ⚠️ {removed['ticker']} を監視リストから削除しました。")
-                time.sleep(1)
-                st.rerun()
-
-    # ライブ監視ゾーンのレンダリング呼び出し
+    # ライブ監視ゾーンのレンダリング呼び出し（関数自体はトップレベルにあるため安全です）
     render_live_monitor_zone(saxo_token)
 
 # ==========================================
-# タブ③：リアルタイム監視 (必要に応じて実装)
+# タブ③：リアルタイム監視
 # ==========================================
 with tab3:
     st.header("🚨 アラートログ ＆ 通知履歴")
